@@ -1,0 +1,444 @@
+// Melodix (악기놀이터) — Prisma Schema
+// DB: PostgreSQL (Supabase / AWS RDS)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────
+// AUTH (NextAuth v5 compatible)
+// ─────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  nickname      String?   @unique
+  avatar        String?
+  bio           String?   @db.Text
+  phone         String?
+  role          Role      @default(USER)
+  isBanned      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // NextAuth relations
+  accounts Account[]
+  sessions Session[]
+
+  // Domain relations
+  items              Item[]
+  sentMessages       ChatMessage[]        @relation("MessageSender")
+  buyerRooms         ChatRoom[]           @relation("ChatBuyer")
+  sellerRooms        ChatRoom[]           @relation("ChatSeller")
+  sessionPosts       SessionPost[]
+  sessionApps        SessionApplication[]
+  concertPosts       ConcertPost[]
+  concertApps        ConcertApplication[]
+  reviewsGiven       Review[]             @relation("ReviewGiver")
+  reviewsReceived    Review[]             @relation("ReviewReceiver")
+  reports            Report[]
+  notifications      Notification[]
+  payments           Payment[]
+
+  @@map("users")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ─────────────────────────────────────────
+// MARKETPLACE (악기 장터)
+// ─────────────────────────────────────────
+
+model Item {
+  id          String        @id @default(cuid())
+  title       String
+  description String        @db.Text
+  price       Int           // 원(KRW) 단위
+  category    ItemCategory
+  condition   ItemCondition
+  status      ItemStatus    @default(AVAILABLE)
+  location    String?
+  viewCount   Int           @default(0)
+  sellerId    String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  seller    User        @relation(fields: [sellerId], references: [id])
+  images    ItemImage[]
+  chatRooms ChatRoom[]
+  reviews   Review[]
+  payments  Payment[]
+  reports   Report[]
+
+  @@index([sellerId])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([category, status])
+  @@map("items")
+}
+
+model ItemImage {
+  id        String @id @default(cuid())
+  itemId    String
+  url       String
+  sortOrder Int    @default(0)
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@map("item_images")
+}
+
+enum ItemCategory {
+  STRINGS      // 현악기 (기타, 바이올린, 첼로 등)
+  WIND         // 관악기 (플루트, 색소폰, 트럼펫 등)
+  KEYBOARD     // 건반악기 (피아노, 신디사이저 등)
+  PERCUSSION   // 타악기 (드럼, 실로폰 등)
+  ELECTRONIC   // 전자악기 (이펙터, 앰프 등)
+  ACCESSORIES  // 악세서리 (케이스, 줄 등)
+  OTHER
+}
+
+enum ItemCondition {
+  NEW          // 새상품
+  LIKE_NEW     // 거의 새것
+  GOOD         // 상태 좋음
+  FAIR         // 보통 (사용감 있음)
+  POOR         // 하자 있음
+}
+
+enum ItemStatus {
+  AVAILABLE    // 판매중
+  RESERVED     // 예약중
+  SOLD         // 판매완료
+  HIDDEN       // 숨김
+}
+
+// ─────────────────────────────────────────
+// CHAT (채팅)
+// ─────────────────────────────────────────
+
+model ChatRoom {
+  id        String   @id @default(cuid())
+  buyerId   String
+  sellerId  String
+  itemId    String?
+  createdAt DateTime @default(now())
+
+  buyer    User          @relation("ChatBuyer", fields: [buyerId], references: [id])
+  seller   User          @relation("ChatSeller", fields: [sellerId], references: [id])
+  item     Item?         @relation(fields: [itemId], references: [id])
+  messages ChatMessage[]
+
+  @@unique([buyerId, sellerId, itemId])
+  @@index([buyerId])
+  @@index([sellerId])
+  @@map("chat_rooms")
+}
+
+model ChatMessage {
+  id        String      @id @default(cuid())
+  roomId    String
+  senderId  String
+  content   String      @db.Text
+  type      MessageType @default(TEXT)
+  readAt    DateTime?
+  createdAt DateTime    @default(now())
+
+  room   ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sender User     @relation("MessageSender", fields: [senderId], references: [id])
+
+  @@index([roomId, createdAt(sort: Desc)])
+  @@map("chat_messages")
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  SYSTEM
+}
+
+// ─────────────────────────────────────────
+// SESSION MATCHING (세션 매칭)
+// ─────────────────────────────────────────
+
+model SessionPost {
+  id           String     @id @default(cuid())
+  title        String
+  description  String     @db.Text
+  genres       String[]
+  instruments  String[]   // 구하는 악기
+  location     String
+  pay          String?    // "협의", "무보수", "5만원" 등 자유 텍스트
+  recruitCount Int        @default(1)
+  deadline     DateTime?
+  status       PostStatus @default(OPEN)
+  authorId     String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  author       User                 @relation(fields: [authorId], references: [id])
+  applications SessionApplication[]
+  reports      Report[]
+
+  @@index([authorId])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("session_posts")
+}
+
+model SessionApplication {
+  id        String            @id @default(cuid())
+  postId    String
+  userId    String
+  message   String?           @db.Text
+  portfolio String?           // 포트폴리오 URL or 설명
+  status    ApplicationStatus @default(PENDING)
+  createdAt DateTime          @default(now())
+
+  post SessionPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User        @relation(fields: [userId], references: [id])
+
+  @@unique([postId, userId])
+  @@map("session_applications")
+}
+
+// ─────────────────────────────────────────
+// CONCERT MATCHING (공연 매칭)
+// ─────────────────────────────────────────
+
+model ConcertPost {
+  id           String     @id @default(cuid())
+  title        String
+  description  String     @db.Text
+  genres       String[]
+  instruments  String[]
+  location     String
+  venue        String?
+  date         DateTime?
+  pay          String?
+  recruitCount Int        @default(1)
+  status       PostStatus @default(OPEN)
+  authorId     String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  author       User                  @relation(fields: [authorId], references: [id])
+  applications ConcertApplication[]
+  reports      Report[]
+
+  @@index([authorId])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("concert_posts")
+}
+
+model ConcertApplication {
+  id        String            @id @default(cuid())
+  postId    String
+  userId    String
+  message   String?           @db.Text
+  portfolio String?
+  status    ApplicationStatus @default(PENDING)
+  createdAt DateTime          @default(now())
+
+  post ConcertPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User        @relation(fields: [userId], references: [id])
+
+  @@unique([postId, userId])
+  @@map("concert_applications")
+}
+
+enum PostStatus {
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
+enum ApplicationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+// ─────────────────────────────────────────
+// REVIEWS (리뷰)
+// ─────────────────────────────────────────
+
+model Review {
+  id         String   @id @default(cuid())
+  reviewerId String
+  revieweeId String
+  itemId     String?
+  rating     Int      // 1-5
+  content    String?  @db.Text
+  createdAt  DateTime @default(now())
+
+  reviewer User  @relation("ReviewGiver", fields: [reviewerId], references: [id])
+  reviewee User  @relation("ReviewReceiver", fields: [revieweeId], references: [id])
+  item     Item? @relation(fields: [itemId], references: [id])
+
+  @@index([revieweeId])
+  @@map("reviews")
+}
+
+// ─────────────────────────────────────────
+// PAYMENTS (결제 — 토스페이먼츠 에스크로)
+// ─────────────────────────────────────────
+
+model Payment {
+  id           String        @id @default(cuid())
+  orderId      String        @unique // 토스 orderId
+  paymentKey   String?       @unique // 토스 paymentKey
+  userId       String
+  itemId       String?
+  amount       Int           // 원(KRW)
+  status       PaymentStatus @default(PENDING)
+  method       String?       // card, virtualAccount 등
+  escrowStatus EscrowStatus?
+  approvedAt   DateTime?
+  cancelledAt  DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  user User  @relation(fields: [userId], references: [id])
+  item Item? @relation(fields: [itemId], references: [id])
+
+  @@index([userId])
+  @@map("payments")
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  CANCELLED
+  REFUNDED
+  FAILED
+}
+
+enum EscrowStatus {
+  HELD       // 에스크로 보관 중
+  RELEASED   // 정산 완료
+  DISPUTED   // 이의신청 중
+}
+
+// ─────────────────────────────────────────
+// REPORTS (신고)
+// ─────────────────────────────────────────
+
+model Report {
+  id            String       @id @default(cuid())
+  reporterId    String
+  reason        ReportReason
+  description   String?      @db.Text
+  status        ReportStatus @default(PENDING)
+  adminNote     String?      @db.Text
+  // 신고 대상 (둘 중 하나만)
+  itemId        String?
+  sessionPostId String?
+  concertPostId String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  reporter    User         @relation(fields: [reporterId], references: [id])
+  item        Item?        @relation(fields: [itemId], references: [id])
+  sessionPost SessionPost? @relation(fields: [sessionPostId], references: [id])
+  concertPost ConcertPost? @relation(fields: [concertPostId], references: [id])
+
+  @@map("reports")
+}
+
+enum ReportReason {
+  SPAM
+  FRAUD         // 사기
+  INAPPROPRIATE // 부적절한 콘텐츠
+  FAKE_ITEM     // 허위 매물
+  HARASSMENT    // 괴롭힘
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  RESOLVED
+  DISMISSED
+}
+
+// ─────────────────────────────────────────
+// NOTIFICATIONS (알림)
+// ─────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?            // 연결 페이지 URL 등 추가 데이터
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  CHAT_MESSAGE     // 새 채팅
+  ITEM_RESERVED    // 내 상품 예약됨
+  ITEM_SOLD        // 판매 완료
+  SESSION_APPLY    // 세션 공고 지원 받음
+  SESSION_RESULT   // 세션 지원 결과
+  CONCERT_APPLY    // 공연 공고 지원 받음
+  CONCERT_RESULT   // 공연 지원 결과
+  REVIEW_RECEIVED  // 리뷰 받음
+  PAYMENT          // 결제 관련
+  SYSTEM           // 시스템 공지
+}
