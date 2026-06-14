@@ -1,6 +1,5 @@
-import type { NextConfig } from 'next'
-
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '**.amazonaws.com' },
@@ -9,7 +8,10 @@ const nextConfig: NextConfig = {
       { protocol: 'https', hostname: 'k.kakaocdn.net' },
     ],
   },
-  serverExternalPackages: ['@prisma/client'],
+  // Next.js 14: Prisma 등 서버 전용 패키지 외부화
+  experimental: {
+    serverComponentsExternalPackages: ['@prisma/client'],
+  },
 }
 
 export default nextConfig

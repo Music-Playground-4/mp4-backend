@@ -1,0 +1,480 @@
+// OpenAPI 3.0 명세 — 손으로 관리하는 단일 소스.
+// route.ts 핸들러 + lib/validations/* (Zod) 기준으로 작성됨.
+// 라우트를 추가/수정하면 이 파일도 같이 갱신하세요.
+
+const enums = {
+  ItemCategory: ['STRINGS', 'WIND', 'KEYBOARD', 'PERCUSSION', 'ELECTRONIC', 'ACCESSORIES', 'OTHER'],
+  ItemCondition: ['NEW', 'LIKE_NEW', 'GOOD', 'FAIR', 'POOR'],
+  ItemStatus: ['AVAILABLE', 'RESERVED', 'SOLD', 'HIDDEN'],
+  PostStatus: ['OPEN', 'CLOSED', 'CANCELLED'],
+  ApplicationStatus: ['PENDING', 'ACCEPTED', 'REJECTED'],
+  MessageType: ['TEXT', 'IMAGE', 'SYSTEM'],
+  ReportReason: ['SPAM', 'FRAUD', 'INAPPROPRIATE', 'FAKE_ITEM', 'HARASSMENT', 'OTHER'],
+}
+
+const ENVELOPE_OK = (dataSchema: object) => ({
+  type: 'object',
+  properties: {
+    success: { type: 'boolean', example: true },
+    data: dataSchema,
+    message: { type: 'string' },
+  },
+})
+
+const ERROR_RESPONSE = {
+  description: '에러',
+  content: {
+    'application/json': {
+      schema: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', example: false },
+          error: { type: 'string', example: '로그인이 필요합니다.' },
+          code: { type: 'string', example: 'UNAUTHORIZED' },
+        },
+      },
+    },
+  },
+}
+
+const jsonBody = (schema: object, required = true) => ({
+  required,
+  content: { 'application/json': { schema } },
+})
+
+const okJson = (description: string, dataSchema: object) => ({
+  description,
+  content: { 'application/json': { schema: ENVELOPE_OK(dataSchema) } },
+})
+
+const paginated = (itemsKey: string, itemSchema: object) => ({
+  type: 'object',
+  properties: {
+    [itemsKey]: { type: 'array', items: itemSchema },
+    total: { type: 'integer' },
+    page: { type: 'integer' },
+    limit: { type: 'integer' },
+    totalPages: { type: 'integer' },
+  },
+})
+
+const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` })
+
+const queryParam = (name: string, schema: object, description?: string) => ({
+  name, in: 'query', required: false, schema, description,
+})
+
+const pageParams = [
+  queryParam('page', { type: 'integer', minimum: 1, default: 1 }),
+  queryParam('limit', { type: 'integer', minimum: 1, maximum: 50, default: 20 }),
+]
+
+export function getOpenApiSpec() {
+  return {
+    openapi: '3.0.3',
+    info: {
+      title: 'MP4 (악기놀이터) API',
+      version: '0.1.0',
+      description:
+        '악기 거래 + 세션 매칭 + 공연 매칭 백엔드 API.\n\n' +
+        '**인증**: 대부분의 쓰기/조회 보호 엔드포인트는 NextAuth 세션 쿠키가 필요합니다. ' +
+        '같은 브라우저에서 로그인한 상태라면 아래 "Try it out"이 쿠키를 자동 전송합니다.',
+    },
+    servers: [{ url: '/', description: '현재 호스트' }],
+    tags: [
+      { name: '사용자' },
+      { name: '악기 장터' },
+      { name: '세션 매칭' },
+      { name: '공연 매칭' },
+      { name: '채팅' },
+      { name: '결제' },
+      { name: '신고/업로드' },
+    ],
+    components: {
+      securitySchemes: {
+        // NextAuth 세션 쿠키 (개발: authjs.session-token / 배포: __Secure-authjs.session-token)
+        cookieAuth: { type: 'apiKey', in: 'cookie', name: 'authjs.session-token' },
+      },
+      schemas: {
+        UserPublic: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            nickname: { type: 'string', nullable: true },
+            avatar: { type: 'string', nullable: true },
+            bio: { type: 'string', nullable: true },
+          },
+        },
+        Item: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            title: { type: 'string' },
+            description: { type: 'string' },
+            price: { type: 'integer', description: '원(KRW)' },
+            category: { type: 'string', enum: enums.ItemCategory },
+            condition: { type: 'string', enum: enums.ItemCondition },
+            status: { type: 'string', enum: enums.ItemStatus },
+            location: { type: 'string', nullable: true },
+            viewCount: { type: 'integer' },
+            createdAt: { type: 'string', format: 'date-time' },
+            seller: ref('UserPublic'),
+            images: { type: 'array', items: { type: 'object', properties: { url: { type: 'string' } } } },
+          },
+        },
+        CreateItem: {
+          type: 'object',
+          required: ['title', 'description', 'price', 'category', 'condition', 'imageUrls'],
+          properties: {
+            title: { type: 'string', minLength: 2, maxLength: 100 },
+            description: { type: 'string', minLength: 10, maxLength: 5000 },
+            price: { type: 'integer', minimum: 0, maximum: 100000000 },
+            category: { type: 'string', enum: enums.ItemCategory },
+            condition: { type: 'string', enum: enums.ItemCondition },
+            location: { type: 'string', maxLength: 100 },
+            imageUrls: { type: 'array', items: { type: 'string', format: 'uri' }, minItems: 1, maxItems: 10 },
+          },
+        },
+        Post: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            title: { type: 'string' },
+            description: { type: 'string' },
+            genres: { type: 'array', items: { type: 'string' } },
+            instruments: { type: 'array', items: { type: 'string' } },
+            location: { type: 'string' },
+            venue: { type: 'string', nullable: true, description: '공연 전용' },
+            date: { type: 'string', format: 'date-time', nullable: true, description: '공연 전용' },
+            deadline: { type: 'string', format: 'date-time', nullable: true, description: '세션 전용' },
+            pay: { type: 'string', nullable: true },
+            recruitCount: { type: 'integer' },
+            status: { type: 'string', enum: enums.PostStatus },
+            createdAt: { type: 'string', format: 'date-time' },
+            author: ref('UserPublic'),
+          },
+        },
+        CreateSessionPost: {
+          type: 'object',
+          required: ['title', 'description', 'genres', 'instruments', 'location'],
+          properties: {
+            title: { type: 'string', minLength: 2, maxLength: 100 },
+            description: { type: 'string', minLength: 10, maxLength: 5000 },
+            genres: { type: 'array', items: { type: 'string' }, minItems: 1 },
+            instruments: { type: 'array', items: { type: 'string' }, minItems: 1 },
+            location: { type: 'string', minLength: 1, maxLength: 100 },
+            pay: { type: 'string', maxLength: 100 },
+            recruitCount: { type: 'integer', minimum: 1, maximum: 20, default: 1 },
+            deadline: { type: 'string', format: 'date-time' },
+          },
+        },
+        CreateConcertPost: {
+          type: 'object',
+          required: ['title', 'description', 'genres', 'instruments', 'location'],
+          properties: {
+            title: { type: 'string', minLength: 2, maxLength: 100 },
+            description: { type: 'string', minLength: 10, maxLength: 5000 },
+            genres: { type: 'array', items: { type: 'string' }, minItems: 1 },
+            instruments: { type: 'array', items: { type: 'string' }, minItems: 1 },
+            location: { type: 'string', minLength: 1, maxLength: 100 },
+            venue: { type: 'string', maxLength: 100 },
+            date: { type: 'string', format: 'date-time' },
+            pay: { type: 'string', maxLength: 100 },
+            recruitCount: { type: 'integer', minimum: 1, maximum: 50, default: 1 },
+          },
+        },
+        Application: {
+          type: 'object',
+          required: [],
+          properties: {
+            message: { type: 'string', maxLength: 1000 },
+            portfolio: { type: 'string', maxLength: 500 },
+          },
+        },
+        UpdateProfile: {
+          type: 'object',
+          properties: {
+            nickname: { type: 'string', minLength: 2, maxLength: 30 },
+            bio: { type: 'string', maxLength: 500 },
+            phone: { type: 'string', maxLength: 20 },
+            avatar: { type: 'string', format: 'uri' },
+          },
+        },
+        CreateRoom: {
+          type: 'object',
+          required: ['sellerId'],
+          properties: {
+            sellerId: { type: 'string', description: 'cuid' },
+            itemId: { type: 'string', description: 'cuid (선택)' },
+          },
+        },
+        SendMessage: {
+          type: 'object',
+          required: ['content'],
+          properties: {
+            content: { type: 'string', minLength: 1, maxLength: 1000 },
+            type: { type: 'string', enum: ['TEXT', 'IMAGE'], default: 'TEXT' },
+          },
+        },
+        CreatePayment: {
+          type: 'object',
+          required: ['itemId', 'amount'],
+          properties: {
+            itemId: { type: 'string', description: 'cuid' },
+            amount: { type: 'integer', minimum: 1, description: '상품 가격과 일치해야 함' },
+          },
+        },
+        ConfirmPayment: {
+          type: 'object',
+          required: ['paymentKey', 'orderId', 'amount'],
+          properties: {
+            paymentKey: { type: 'string' },
+            orderId: { type: 'string' },
+            amount: { type: 'integer', minimum: 1 },
+          },
+        },
+        CreateReport: {
+          type: 'object',
+          required: ['reason'],
+          description: 'itemId / sessionPostId / concertPostId 중 최소 하나 필수',
+          properties: {
+            reason: { type: 'string', enum: enums.ReportReason },
+            description: { type: 'string', maxLength: 1000 },
+            itemId: { type: 'string' },
+            sessionPostId: { type: 'string' },
+            concertPostId: { type: 'string' },
+          },
+        },
+        PresignedUrlReq: {
+          type: 'object',
+          required: ['filename', 'contentType'],
+          properties: {
+            filename: { type: 'string', minLength: 1, maxLength: 255 },
+            contentType: { type: 'string', example: 'image/jpeg' },
+            folder: { type: 'string', enum: ['items', 'avatars', 'portfolios'], default: 'items' },
+          },
+        },
+      },
+    },
+    paths: {
+      '/api/users': {
+        get: {
+          tags: ['사용자'], summary: '내 프로필 조회', security: [{ cookieAuth: [] }],
+          responses: { 200: okJson('내 프로필', ref('UserPublic')), 401: ERROR_RESPONSE },
+        },
+      },
+      '/api/users/{id}': {
+        get: {
+          tags: ['사용자'], summary: '공개 프로필 조회',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: okJson('공개 프로필', ref('UserPublic')), 404: ERROR_RESPONSE },
+        },
+        put: {
+          tags: ['사용자'], summary: '프로필 수정 (본인만)', security: [{ cookieAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: jsonBody(ref('UpdateProfile')),
+          responses: { 200: okJson('수정됨', ref('UserPublic')), 401: ERROR_RESPONSE, 403: ERROR_RESPONSE },
+        },
+      },
+      '/api/marketplace/items': {
+        get: {
+          tags: ['악기 장터'], summary: '상품 목록 (검색/필터/정렬)',
+          parameters: [
+            ...pageParams,
+            queryParam('category', { type: 'string', enum: enums.ItemCategory }),
+            queryParam('condition', { type: 'string', enum: enums.ItemCondition }),
+            queryParam('minPrice', { type: 'integer', minimum: 0 }),
+            queryParam('maxPrice', { type: 'integer', minimum: 0 }),
+            queryParam('q', { type: 'string' }, '검색어 (제목/설명)'),
+            queryParam('sort', { type: 'string', enum: ['latest', 'price_asc', 'price_desc'], default: 'latest' }),
+          ],
+          responses: { 200: okJson('상품 목록', paginated('items', ref('Item'))), 400: ERROR_RESPONSE },
+        },
+        post: {
+          tags: ['악기 장터'], summary: '상품 등록', security: [{ cookieAuth: [] }],
+          requestBody: jsonBody(ref('CreateItem')),
+          responses: { 201: okJson('등록됨', ref('Item')), 400: ERROR_RESPONSE, 401: ERROR_RESPONSE },
+        },
+      },
+      '/api/marketplace/items/{id}': {
+        get: {
+          tags: ['악기 장터'], summary: '상품 상세 (조회수 증가)',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: okJson('상품 상세', ref('Item')), 404: ERROR_RESPONSE },
+        },
+        put: {
+          tags: ['악기 장터'], summary: '상품 수정 (판매자/관리자)', security: [{ cookieAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: jsonBody(ref('CreateItem')),
+          responses: { 200: okJson('수정됨', ref('Item')), 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 404: ERROR_RESPONSE },
+        },
+        delete: {
+          tags: ['악기 장터'], summary: '상품 삭제 (판매자/관리자)', security: [{ cookieAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 204: { description: '삭제됨' }, 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 404: ERROR_RESPONSE },
+        },
+      },
+      '/api/sessions/posts': {
+        get: {
+          tags: ['세션 매칭'], summary: '세션 공고 목록',
+          parameters: [
+            ...pageParams,
+            queryParam('genre', { type: 'string' }),
+            queryParam('instrument', { type: 'string' }),
+            queryParam('location', { type: 'string' }),
+            queryParam('q', { type: 'string' }),
+          ],
+          responses: { 200: okJson('공고 목록', paginated('posts', ref('Post'))), 400: ERROR_RESPONSE },
+        },
+        post: {
+          tags: ['세션 매칭'], summary: '세션 공고 작성', security: [{ cookieAuth: [] }],
+          requestBody: jsonBody(ref('CreateSessionPost')),
+          responses: { 201: okJson('등록됨', ref('Post')), 400: ERROR_RESPONSE, 401: ERROR_RESPONSE },
+        },
+      },
+      '/api/sessions/posts/{id}': {
+        get: {
+          tags: ['세션 매칭'], summary: '세션 공고 상세',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: okJson('상세', ref('Post')), 404: ERROR_RESPONSE },
+        },
+        put: {
+          tags: ['세션 매칭'], summary: '공고 수정 (작성자/관리자)', security: [{ cookieAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: jsonBody(ref('CreateSessionPost')),
+          responses: { 200: okJson('수정됨', ref('Post')), 401: ERROR_RESPONSE, 403: ERROR_RESPONSE },
+        },
+        delete: {
+          tags: ['세션 매칭'], summary: '공고 삭제 (작성자/관리자)', security: [{ cookieAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 204: { description: '삭제됨' }, 401: ERROR_RESPONSE, 403: ERROR_RESPONSE },
+        },
+      },
+      '/api/sessions/posts/{id}/applications': {
+        get: {
+          tags: ['세션 매칭'], summary: '지원자 목록 (작성자만)', security: [{ cookieAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: okJson('지원자', { type: 'array', items: { type: 'object' } }), 401: ERROR_RESPONSE, 403: ERROR_RESPONSE },
+        },
+        post: {
+          tags: ['세션 매칭'], summary: '세션 지원', security: [{ cookieAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: jsonBody(ref('Application'), false),
+          responses: { 201: okJson('지원 완료', { type: 'object' }), 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 409: ERROR_RESPONSE },
+        },
+      },
+      '/api/concerts/posts': {
+        get: {
+          tags: ['공연 매칭'], summary: '공연 공고 목록',
+          parameters: [
+            ...pageParams,
+            queryParam('genre', { type: 'string' }),
+            queryParam('instrument', { type: 'string' }),
+            queryParam('location', { type: 'string' }),
+            queryParam('q', { type: 'string' }),
+          ],
+          responses: { 200: okJson('공고 목록', paginated('posts', ref('Post'))), 400: ERROR_RESPONSE },
+        },
+        post: {
+          tags: ['공연 매칭'], summary: '공연 공고 작성', security: [{ cookieAuth: [] }],
+          requestBody: jsonBody(ref('CreateConcertPost')),
+          responses: { 201: okJson('등록됨', ref('Post')), 400: ERROR_RESPONSE, 401: ERROR_RESPONSE },
+        },
+      },
+      '/api/concerts/posts/{id}': {
+        get: {
+          tags: ['공연 매칭'], summary: '공연 공고 상세',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: okJson('상세', ref('Post')), 404: ERROR_RESPONSE },
+        },
+        put: {
+          tags: ['공연 매칭'], summary: '공고 수정 (작성자/관리자)', security: [{ cookieAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: jsonBody(ref('CreateConcertPost')),
+          responses: { 200: okJson('수정됨', ref('Post')), 401: ERROR_RESPONSE, 403: ERROR_RESPONSE },
+        },
+        delete: {
+          tags: ['공연 매칭'], summary: '공고 삭제 (작성자/관리자)', security: [{ cookieAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 204: { description: '삭제됨' }, 401: ERROR_RESPONSE, 403: ERROR_RESPONSE },
+        },
+      },
+      '/api/concerts/posts/{id}/applications': {
+        get: {
+          tags: ['공연 매칭'], summary: '지원자 목록 (작성자만)', security: [{ cookieAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: okJson('지원자', { type: 'array', items: { type: 'object' } }), 401: ERROR_RESPONSE, 403: ERROR_RESPONSE },
+        },
+        post: {
+          tags: ['공연 매칭'], summary: '공연 지원', security: [{ cookieAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: jsonBody(ref('Application'), false),
+          responses: { 201: okJson('지원 완료', { type: 'object' }), 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 409: ERROR_RESPONSE },
+        },
+      },
+      '/api/chat/rooms': {
+        get: {
+          tags: ['채팅'], summary: '내 채팅방 목록', security: [{ cookieAuth: [] }],
+          responses: { 200: okJson('채팅방', { type: 'array', items: { type: 'object' } }), 401: ERROR_RESPONSE },
+        },
+        post: {
+          tags: ['채팅'], summary: '채팅방 생성 (기존 있으면 반환)', security: [{ cookieAuth: [] }],
+          requestBody: jsonBody(ref('CreateRoom')),
+          responses: { 201: okJson('생성됨', { type: 'object' }), 200: okJson('기존 방', { type: 'object' }), 400: ERROR_RESPONSE, 401: ERROR_RESPONSE },
+        },
+      },
+      '/api/chat/rooms/{id}/messages': {
+        get: {
+          tags: ['채팅'], summary: '메시지 목록 (cursor 페이지네이션)', security: [{ cookieAuth: [] }],
+          parameters: [
+            { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+            queryParam('cursor', { type: 'string' }, '이전 페이지 마지막 메시지 id'),
+            queryParam('limit', { type: 'integer', maximum: 50, default: 30 }),
+          ],
+          responses: { 200: okJson('메시지', { type: 'object', properties: { messages: { type: 'array', items: { type: 'object' } }, nextCursor: { type: 'string', nullable: true } } }), 401: ERROR_RESPONSE, 403: ERROR_RESPONSE },
+        },
+        post: {
+          tags: ['채팅'], summary: '메시지 전송', security: [{ cookieAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: jsonBody(ref('SendMessage')),
+          responses: { 201: okJson('전송됨', { type: 'object' }), 401: ERROR_RESPONSE, 403: ERROR_RESPONSE },
+        },
+      },
+      '/api/payments/create': {
+        post: {
+          tags: ['결제'], summary: '결제 주문 생성 (토스 결제창 전)', security: [{ cookieAuth: [] }],
+          requestBody: jsonBody(ref('CreatePayment')),
+          responses: { 200: okJson('주문 정보', { type: 'object', properties: { orderId: { type: 'string' }, amount: { type: 'integer' }, orderName: { type: 'string' }, customerEmail: { type: 'string' }, customerName: { type: 'string' } } }), 400: ERROR_RESPONSE, 401: ERROR_RESPONSE, 404: ERROR_RESPONSE },
+        },
+      },
+      '/api/payments/confirm': {
+        post: {
+          tags: ['결제'], summary: '토스 결제 승인', security: [{ cookieAuth: [] }],
+          requestBody: jsonBody(ref('ConfirmPayment')),
+          responses: { 200: okJson('결제 완료', { type: 'object' }), 400: ERROR_RESPONSE, 401: ERROR_RESPONSE, 404: ERROR_RESPONSE },
+        },
+      },
+      '/api/payments/webhook': {
+        post: {
+          tags: ['결제'], summary: '토스페이먼츠 웹훅 (서버→서버, 인증 헤더 별도)',
+          description: '토스 대시보드에서 호출. Authorization Basic 검증. 일반 클라이언트가 쓰는 엔드포인트 아님.',
+          responses: { 200: { description: 'ok' }, 401: { description: 'Unauthorized' } },
+        },
+      },
+      '/api/reports': {
+        post: {
+          tags: ['신고/업로드'], summary: '신고 접수', security: [{ cookieAuth: [] }],
+          requestBody: jsonBody(ref('CreateReport')),
+          responses: { 201: okJson('접수됨', { type: 'object' }), 400: ERROR_RESPONSE, 401: ERROR_RESPONSE },
+        },
+      },
+      '/api/uploads/presigned-url': {
+        post: {
+          tags: ['신고/업로드'], summary: 'S3 Presigned URL 발급', security: [{ cookieAuth: [] }],
+          requestBody: jsonBody(ref('PresignedUrlReq')),
+          responses: { 200: okJson('업로드 URL', { type: 'object', properties: { presignedUrl: { type: 'string' }, publicUrl: { type: 'string' }, key: { type: 'string' } } }), 400: ERROR_RESPONSE, 401: ERROR_RESPONSE },
+        },
+      },
+    },
+  }
+}

@@ -44,6 +44,16 @@ melodix/
 └── .env.example
 ```
 
+## API 문서 (Swagger UI)
+
+개발 서버 실행 후 브라우저에서 확인:
+
+- **Swagger UI**: http://localhost:3000/api-docs — 전체 엔드포인트 브라우징 + Try it out
+- **OpenAPI 스펙(JSON)**: http://localhost:3000/api/openapi
+
+> 스펙은 [src/lib/openapi.ts](src/lib/openapi.ts)에서 손으로 관리합니다. 라우트를 추가/수정하면 이 파일도 같이 갱신하세요.
+> 보호된 엔드포인트는 같은 브라우저에서 로그인되어 있으면 세션 쿠키로 Try it out이 동작합니다.
+
 ## API 엔드포인트
 
 ### 인증
