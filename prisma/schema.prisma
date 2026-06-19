@@ -6,8 +6,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // 앱 런타임용 (Supabase pooler, 6543, pgbouncer)
+  directUrl = env("DIRECT_URL")   // 마이그레이션용 직접 연결 (Supabase, 5432)
 }
 
 // ─────────────────────────────────────────
