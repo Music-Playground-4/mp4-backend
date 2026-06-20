@@ -19,6 +19,7 @@ model User {
   id            String    @id @default(cuid())
   email         String    @unique
   emailVerified DateTime?
+  passwordHash  String?   // 이메일/비번 가입자만. 소셜(OAuth) 가입자는 null
   name          String?
   nickname      String?   @unique
   avatar        String?

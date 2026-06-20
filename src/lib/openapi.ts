@@ -82,6 +82,7 @@ export function getOpenApiSpec() {
     },
     servers: [{ url: '/', description: '현재 호스트' }],
     tags: [
+      { name: '인증' },
       { name: '사용자' },
       { name: '악기 장터' },
       { name: '세션 매칭' },
@@ -94,8 +95,26 @@ export function getOpenApiSpec() {
       securitySchemes: {
         // NextAuth 세션 쿠키 (개발: authjs.session-token / 배포: __Secure-authjs.session-token)
         cookieAuth: { type: 'apiKey', in: 'cookie', name: 'authjs.session-token' },
+        // 이메일/비밀번호 로그인용 자체 JWT (Authorization: Bearer)
+        bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
       },
       schemas: {
+        AuthUser: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            name: { type: 'string', nullable: true },
+            email: { type: 'string' },
+            avatar: { type: 'string', nullable: true },
+          },
+        },
+        AuthResult: {
+          type: 'object',
+          properties: {
+            token: { type: 'string' },
+            user: { $ref: '#/components/schemas/AuthUser' },
+          },
+        },
         UserPublic: {
           type: 'object',
           properties: {
@@ -257,6 +276,45 @@ export function getOpenApiSpec() {
       },
     },
     paths: {
+      '/api/auth/signup': {
+        post: {
+          tags: ['인증'], summary: '회원가입 (이메일/비밀번호)',
+          requestBody: jsonBody({
+            type: 'object', required: ['email', 'password', 'name'],
+            properties: {
+              email: { type: 'string', format: 'email' },
+              password: { type: 'string', minLength: 8 },
+              name: { type: 'string' },
+            },
+          }),
+          responses: { 201: okJson('가입 완료', ref('AuthResult')), 400: ERROR_RESPONSE, 409: ERROR_RESPONSE },
+        },
+      },
+      '/api/auth/login': {
+        post: {
+          tags: ['인증'], summary: '로그인 (이메일/비밀번호)',
+          requestBody: jsonBody({
+            type: 'object', required: ['email', 'password'],
+            properties: {
+              email: { type: 'string', format: 'email' },
+              password: { type: 'string' },
+            },
+          }),
+          responses: { 200: okJson('로그인 성공', ref('AuthResult')), 400: ERROR_RESPONSE, 401: ERROR_RESPONSE },
+        },
+      },
+      '/api/auth/me': {
+        get: {
+          tags: ['인증'], summary: '현재 유저 조회 (Bearer 토큰)', security: [{ bearerAuth: [] }],
+          responses: { 200: okJson('현재 유저', ref('AuthUser')), 401: ERROR_RESPONSE },
+        },
+      },
+      '/api/auth/logout': {
+        post: {
+          tags: ['인증'], summary: '로그아웃 (클라이언트 토큰 폐기)', security: [{ bearerAuth: [] }],
+          responses: { 204: { description: '로그아웃됨' } },
+        },
+      },
       '/api/users': {
         get: {
           tags: ['사용자'], summary: '내 프로필 조회', security: [{ cookieAuth: [] }],
