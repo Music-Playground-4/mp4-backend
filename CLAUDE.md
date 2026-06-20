@@ -12,13 +12,14 @@
 |--------|------|------|
 | 런타임/프레임워크 | Next.js 14 App Router | `app/api/**/route.ts` 기반 |
 | 언어 | TypeScript (strict) | `@/*` → `src/*` 경로 별칭 |
-| DB | PostgreSQL | Supabase / Neon |
+| DB | PostgreSQL | Supabase (운영), pooled+direct 2개 URL |
 | ORM | Prisma 5 | `prisma/schema.prisma` 단일 스키마 |
 | 인증 | Auth.js (NextAuth v5 beta) | DB 세션 전략, Kakao/Google/Apple |
 | 검증 | Zod | 모든 입력은 Zod로 검증 |
+| 테스트 | Vitest | UseCase/유틸 단위 테스트 (도입 예정) |
 | 업로드 | AWS S3 + Presigned URL | 이미지는 클라이언트가 S3에 직접 PUT |
 | 결제 | 토스페이먼츠 | 에스크로 |
-| 배포 | Vercel | Serverless Functions |
+| 배포 | Vercel | `mp4-backend.vercel.app` (Serverless Functions) |
 
 > 이 스택은 임의로 바꾸지 않는다. 새 라이브러리 도입이 필요하면 먼저 제안하고 합의한 뒤 추가한다.
 
@@ -26,9 +27,10 @@
 
 ```bash
 npm run dev            # 개발 서버 (localhost:3000)
-npm run build          # 프로덕션 빌드 (배포 전 반드시 통과 확인)
+npm run build          # 프로덕션 빌드 (prisma generate && next build)
 npm run lint           # ESLint
 npm run type-check     # tsc --noEmit — 타입 검사
+# npm run test         # Vitest (도입 후 활성화)
 
 npm run db:generate    # Prisma Client 재생성 (schema 수정 후)
 npm run db:push        # 스키마를 DB에 반영 (마이그레이션 파일 없이, 개발용)
@@ -37,7 +39,9 @@ npm run db:studio      # Prisma Studio (DB GUI)
 npm run db:seed        # 시드 데이터 (prisma/seed.ts — 아직 없음)
 ```
 
-**작업 완료 전 체크리스트**: `npm run type-check` → `npm run lint` → (가능하면) `npm run build`. 스키마를 건드렸으면 `npm run db:generate`도.
+> **DB 연결**: Prisma CLI는 `.env`만 읽으므로 `DATABASE_URL`(pooled, 6543, pgbouncer)·`DIRECT_URL`(direct, 5432)은 `.env`에 둔다. 나머지 앱 시크릿(AUTH/AWS/토스)은 `.env.local`. 둘 다 커밋 금지.
+
+**작업 완료 전 체크리스트**: `npm run type-check` → `npm run lint` → (테스트 도입 후) `npm run test` → (가능하면) `npm run build`. 스키마를 건드렸으면 `npm run db:generate`도.
 
 ## 디렉토리 구조
 
@@ -125,24 +129,79 @@ export async function POST(req: NextRequest) {
 - 외부로 내보내는 데이터는 `select`로 **필요한 필드만** 노출한다. 특히 User는 `{ id, nickname, avatar }` 정도만. 이메일/전화 등 민감정보를 목록에 노출하지 않는다.
 - 목록+카운트는 `Promise.all([findMany, count])`로 병렬 처리.
 - 금액(`price`, `amount`)은 **원(KRW) 단위 정수**다. 소수/실수 쓰지 않는다.
+- **N+1 금지**: 반복문 안에서 쿼리하지 않는다. `include`/`select` 관계 로딩이나 `in` 배치 조회로 해결한다.
 
-### 6. 스키마 변경 워크플로
+### 6. 계층 경계 (가볍게)
+이 프로젝트는 풀 헥사고날이 아니지만, 경계는 지킨다.
+- **입력**: HTTP body/query → Zod 스키마(`*Input`/`*Query` 타입)로만 받는다.
+- **출력**: Prisma 엔티티를 그대로 노출하지 말고 `select`로 정제한 형태만 응답한다.
+- 핸들러가 길어지면 순수 함수(검증·계산·매핑)를 분리해 단위 테스트가 가능하게 둔다. 특히 **결제 금액 검증** 같은 로직은 핸들러에서 떼어내 테스트한다.
+
+### 7. 스키마 변경 워크플로
 1. `prisma/schema.prisma` 수정 (모델에 `@@map` snake_case 테이블명, 적절한 `@@index` 유지)
 2. `npm run db:generate` 로 클라이언트 갱신
 3. 개발 중이면 `npm run db:push`, 운영 반영이면 `npm run db:migrate`
+4. **마이그레이션 불변성**: 이미 적용된 마이그레이션 파일은 수정하지 않는다. 추가 변경은 새 마이그레이션으로 쌓는다.
 
-### 7. OpenAPI 동기화
+### 8. OpenAPI 동기화
 API 라우트를 추가/변경하면 [src/lib/openapi.ts](src/lib/openapi.ts)의 스펙도 **반드시 같이** 갱신한다. (Swagger UI: `/api-docs`)
 
-### 8. 파일 업로드 흐름
+### 9. 파일 업로드 흐름
 서버는 파일 바이트를 받지 않는다. `POST /api/uploads/presigned-url`로 S3 presigned URL을 발급 → 클라이언트가 S3에 직접 업로드 → 결과 URL만 DB에 저장. 이미지 URL은 항상 `z.string().url()`로 검증.
+
+## 개발 워크플로 (TDD)
+
+기능 단위 작업은 다음 순서를 따른다.
+
+1. **분석(Analyze)**: 요구사항을 다시 진술하고 입력/출력, 엣지 케이스, 수용 기준(acceptance criteria)을 나열한다.
+2. **Red**: 실패하는 단위 테스트를 먼저 작성하고, *올바른 이유로* 실패하는지 확인한다.
+3. **Green**: 테스트를 통과시키는 최소 코드를 작성한다.
+4. **Refactor**: 테스트를 초록으로 유지하며 정리한다.
+
+**Red를 건너뛰어도 되는 경우**: 순수 리팩터/리네임, 또는 Prisma 호출 한 번을 단순 위임하기만 하는 핸들러.
+
+> 테스트 러너 도입 전까지는 `type-check` + `lint` + `build` + 수동/`curl` 검증으로 대체한다.
+
+## 작업 분할 (Phase) & 병렬 Subagent
+
+- 작업을 **독립적으로 배포 가능한 가장 작은 Phase**(대략 Red→Green→Refactor 한 사이클)로 쪼갠다.
+- 서로 **파일을 공유하지 않고 순서 의존이 없는** Phase는, 한 메시지에서 여러 Agent 호출로 **병렬 Subagent**에 맡긴다. (사용자가 subagent 사용을 요청했거나 명시적으로 허용한 경우에 한함)
+- 각 Phase 후: 무엇이 바뀌었는지, 추가/통과한 테스트, 다음 Phase를 보고한다.
+
+## 작업 전 Self-check 체크리스트
+
+계획을 세웠으면(사용자가 요청하지 않았더라도) 실행 전에 스스로 점검한다.
+
+- [ ] 모든 요구사항이 어떤 Phase엔가 매핑되는가.
+- [ ] 입력은 Zod 스키마, 출력은 `select`로 정제 — Prisma 엔티티/HTTP 타입이 경계를 넘지 않는가.
+- [ ] 동작을 바꾸는 Phase는 구현 전에 테스트가 있는가(테스트 러너 도입 후).
+- [ ] 병렬 Phase끼리 같은 파일을 건드리지 않는가.
+- [ ] 새 파일이 올바른 위치(`api/`, `lib/validations/` 등)에 가는가.
+- [ ] 라우트를 바꿨으면 `openapi.ts`도 갱신 대상에 포함했는가.
+- [ ] 파괴적 단계(마이그레이션, 삭제)는 명시적 승인을 받도록 표시했는가.
+
+## 테스트 (Vitest)
+
+- **대상**: 비즈니스 로직/유틸/검증 함수의 단위 테스트. 외부 의존성은 mock.
+- **Mocking**: `@/lib/prisma`와 `@/lib/auth`의 `auth()`는 `vi.mock`으로 갈아끼운다.
+- **무엇을 테스트하나**: Zod 스키마 경계값, 결제 금액 검증, 소유권/권한 분기, 페이지네이션 계산 등 **순수 로직** 위주. 단순 위임 핸들러는 생략.
+- 테스트 파일은 대상 옆 `*.test.ts` 또는 `src/**/__tests__/`.
+
+> 아직 미도입. 도입 시 `vitest` + 설정(`vitest.config.ts`)을 추가하고 `package.json`에 `test` 스크립트를 넣는다.
+
+## Git 컨벤션
+
+- **커밋 메시지**: `<type>: <subject>` — type은 feat, fix, docs, style, refactor, perf, test, chore. 명령형, 소문자 시작, 마침표 없음, 제목 50자 이내. **한국어 OK**. (기존 커밋 예: `chore: 배포 준비 — directUrl 추가`)
+- **자동 git 작업 금지**: 사용자의 명시적 승인 없이 `commit`/`push`/`amend`/`reset`을 하지 않는다.
+- **Co-authored-by 금지**: 커밋에 `Co-authored-by` 등 어떤 attribution trailer도 넣지 않는다. 시스템 git 사용자만 쓴다.
+- **기본 브랜치**: 이 저장소는 `main` 단일 운영(Vercel production = `main`). 협업/리뷰 흐름이 생기면 그때 합의해 분리한다.
 
 ## 주의사항 / 함정
 
 - **Serverless 환경**: 핸들러는 stateless. 전역 상태에 의존하지 말 것. Prisma는 `lib/prisma.ts` 싱글톤으로 커넥션 폭주를 막는다.
-- **Next.js 14 (App Router)**: 이 프로젝트는 14.2.x. `serverComponentsExternalPackages`(현 위치 `experimental`) 등 15에서 바뀐 API를 적용하지 말 것. 동적 라우트 `params`는 14에서 **동기**다 (`{ params }: { params: { id: string } }`).
-- **환경변수**: `.env.local`(로컬), Vercel 대시보드(운영). `.env*`는 절대 커밋 금지. 새 변수는 `.env.example`에 키만 추가.
-- **비밀키 절대 노출 금지**: `AUTH_SECRET`, `TOSS_SECRET_KEY`, `AWS_SECRET_ACCESS_KEY` 등을 코드/로그/응답에 넣지 않는다. 클라이언트 노출이 필요한 값만 `NEXT_PUBLIC_` 접두사.
+- **Next.js 14 (App Router)**: 이 프로젝트는 14.2.x. 15에서 바뀐 API(동적 라우트 `params`의 async화 등)를 적용하지 말 것. 동적 라우트 `params`는 14에서 **동기**다 (`{ params }: { params: { id: string } }`).
+- **환경변수**: `.env`(DB)·`.env.local`(앱 시크릿)는 로컬, 운영은 Vercel 대시보드. `.env*`는 절대 커밋 금지. 새 변수는 `.env.example`에 키만 추가.
+- **비밀키 절대 노출 금지**: `AUTH_SECRET`, `TOSS_SECRET_KEY`, `AWS_SECRET_ACCESS_KEY`, DB 비밀번호 등을 코드/로그/응답/대화에 넣지 않는다. 클라이언트 노출이 필요한 값만 `NEXT_PUBLIC_` 접두사.
 - **결제**: 금액 검증은 반드시 서버에서. 토스 `confirm` 시 클라이언트가 보낸 금액을 그대로 신뢰하지 말고 DB의 주문 금액과 대조한다. webhook은 서명 검증 후 처리.
 - **에러 로깅**: `console.error('[METHOD /path]', e)` 형식 유지. 사용자에게는 `serverError()`의 일반 메시지만, 상세는 로그로.
 
