@@ -25,6 +25,12 @@ model User {
   avatar        String?
   bio           String?   @db.Text
   phone         String?
+  position      String?   // 주 포지션 (보컬/기타/드럼 등)
+  region        String?   // 활동 지역
+  genres        String[]  // 선호 장르
+  level         String?   // 경력/레벨 (자유 텍스트, 예: "입문 6개월")
+  activityTypes String[]  // 활동 유형 (play/perform/trade/learn)
+  phoneVerified Boolean   @default(false) // 휴대폰 본인인증 여부 (신뢰점수 연계)
   role          Role      @default(USER)
   isBanned      Boolean   @default(false)
   createdAt     DateTime  @default(now())

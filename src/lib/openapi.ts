@@ -122,6 +122,10 @@ export function getOpenApiSpec() {
             nickname: { type: 'string', nullable: true },
             avatar: { type: 'string', nullable: true },
             bio: { type: 'string', nullable: true },
+            position: { type: 'string', nullable: true, description: '주 포지션' },
+            region: { type: 'string', nullable: true, description: '활동 지역' },
+            genres: { type: 'array', items: { type: 'string' }, description: '선호 장르' },
+            level: { type: 'string', nullable: true, description: '경력/레벨' },
           },
         },
         Item: {
@@ -212,11 +216,21 @@ export function getOpenApiSpec() {
         },
         UpdateProfile: {
           type: 'object',
+          description: '모든 필드 선택(부분 수정). 온보딩에도 동일 스키마 사용.',
           properties: {
             nickname: { type: 'string', minLength: 2, maxLength: 30 },
             bio: { type: 'string', maxLength: 500 },
             phone: { type: 'string', maxLength: 20 },
             avatar: { type: 'string', format: 'uri' },
+            position: { type: 'string', maxLength: 30, description: '주 포지션 (보컬/기타 등)' },
+            region: { type: 'string', maxLength: 50, description: '활동 지역' },
+            genres: { type: 'array', items: { type: 'string' }, maxItems: 10, description: '선호 장르' },
+            level: { type: 'string', maxLength: 50, description: '경력/레벨 (자유 텍스트)' },
+            activityTypes: {
+              type: 'array',
+              items: { type: 'string', enum: ['play', 'perform', 'trade', 'learn'] },
+              description: '활동 유형 (회원가입 시 선택)',
+            },
           },
         },
         CreateRoom: {
@@ -317,8 +331,13 @@ export function getOpenApiSpec() {
       },
       '/api/users': {
         get: {
-          tags: ['사용자'], summary: '내 프로필 조회', security: [{ cookieAuth: [] }],
+          tags: ['사용자'], summary: '내 프로필 조회', security: [{ bearerAuth: [] }, { cookieAuth: [] }],
           responses: { 200: okJson('내 프로필', ref('UserPublic')), 401: ERROR_RESPONSE },
+        },
+        patch: {
+          tags: ['사용자'], summary: '내 프로필/온보딩 수정', security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+          requestBody: jsonBody(ref('UpdateProfile')),
+          responses: { 200: okJson('수정됨', ref('UserPublic')), 400: ERROR_RESPONSE, 401: ERROR_RESPONSE },
         },
       },
       '/api/users/{id}': {
