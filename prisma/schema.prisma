@@ -54,6 +54,7 @@ model User {
   reports            Report[]
   notifications      Notification[]
   payments           Payment[]
+  favorites          Favorite[]
 
   @@map("users")
 }
@@ -114,6 +115,12 @@ model Item {
   price       Int           // 원(KRW) 단위
   category    ItemCategory
   condition   ItemCondition
+  brand       String?       // 브랜드 (예: Fender)
+  model       String?       // 모델명
+  grade       Grade?        // 거래 신뢰등급 (S/A/B/C)
+  demoUrl     String?       // 데모 연주 음원 URL
+  demoTitle   String?       // 데모 설명
+  demoSec     Int?          // 데모 길이(초)
   status      ItemStatus    @default(AVAILABLE)
   location    String?
   viewCount   Int           @default(0)
@@ -127,6 +134,7 @@ model Item {
   reviews   Review[]
   payments  Payment[]
   reports   Report[]
+  favorites Favorite[]
 
   @@index([sellerId])
   @@index([status, createdAt(sort: Desc)])
@@ -143,6 +151,27 @@ model ItemImage {
   item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   @@map("item_images")
+}
+
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  itemId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, itemId])
+  @@index([itemId])
+  @@map("favorites")
+}
+
+enum Grade {
+  S
+  A
+  B
+  C
 }
 
 enum ItemCategory {

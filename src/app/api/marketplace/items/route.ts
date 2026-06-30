@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
-import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { getSessionUserId } from '@/lib/session'
 import { createItemSchema, itemQuerySchema } from '@/lib/validations/marketplace'
 import { ok, created, unauthorized, validationError, serverError } from '@/lib/response'
 import { ItemStatus } from '@prisma/client'
@@ -12,13 +12,14 @@ export async function GET(req: NextRequest) {
     const parsed = itemQuerySchema.safeParse(Object.fromEntries(searchParams))
     if (!parsed.success) return validationError(parsed.error.flatten().fieldErrors as any)
 
-    const { page, limit, category, condition, minPrice, maxPrice, q, sort } = parsed.data
+    const { page, limit, category, condition, grade, minPrice, maxPrice, q, sort } = parsed.data
     const skip = (page - 1) * limit
 
     const where = {
       status: ItemStatus.AVAILABLE,
       ...(category && { category }),
       ...(condition && { condition }),
+      ...(grade && { grade }),
       ...(minPrice !== undefined || maxPrice !== undefined
         ? { price: { gte: minPrice, lte: maxPrice } }
         : {}),
@@ -44,23 +45,35 @@ export async function GET(req: NextRequest) {
         skip,
         take: limit,
         select: {
-          id: true,
-          title: true,
-          price: true,
-          category: true,
-          condition: true,
-          status: true,
-          location: true,
-          viewCount: true,
-          createdAt: true,
+          id: true, title: true, price: true, category: true, condition: true,
+          grade: true, brand: true, model: true, demoSec: true, demoTitle: true,
+          status: true, location: true, viewCount: true, createdAt: true,
           seller: { select: { id: true, nickname: true, avatar: true } },
           images: { select: { url: true }, orderBy: { sortOrder: 'asc' }, take: 1 },
+          _count: { select: { favorites: true } },
         },
       }),
       prisma.item.count({ where }),
     ])
 
-    return ok({ items, total, page, limit, totalPages: Math.ceil(total / limit) })
+    // 로그인 상태면 내가 찜한 항목 배치 조회 (N+1 방지)
+    const userId = await getSessionUserId(req)
+    let favSet = new Set<string>()
+    if (userId && items.length > 0) {
+      const favs = await prisma.favorite.findMany({
+        where: { userId, itemId: { in: items.map((i) => i.id) } },
+        select: { itemId: true },
+      })
+      favSet = new Set(favs.map((f) => f.itemId))
+    }
+
+    const mapped = items.map(({ _count, ...it }) => ({
+      ...it,
+      favCount: _count.favorites,
+      isFavorited: favSet.has(it.id),
+    }))
+
+    return ok({ items: mapped, total, page, limit, totalPages: Math.ceil(total / limit) })
   } catch (e) {
     console.error('[GET /marketplace/items]', e)
     return serverError()
@@ -70,8 +83,8 @@ export async function GET(req: NextRequest) {
 // POST /api/marketplace/items — 상품 등록
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) return unauthorized()
+    const userId = await getSessionUserId(req)
+    if (!userId) return unauthorized()
 
     const body = await req.json()
     const parsed = createItemSchema.safeParse(body)
@@ -82,10 +95,8 @@ export async function POST(req: NextRequest) {
     const item = await prisma.item.create({
       data: {
         ...itemData,
-        sellerId: session.user.id,
-        images: {
-          create: imageUrls.map((url, i) => ({ url, sortOrder: i })),
-        },
+        sellerId: userId,
+        images: { create: imageUrls.map((url, i) => ({ url, sortOrder: i })) },
       },
       include: { images: true },
     })

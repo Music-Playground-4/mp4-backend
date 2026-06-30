@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ItemCategory, ItemCondition } from '@prisma/client'
+import { ItemCategory, ItemCondition, Grade } from '@prisma/client'
 
 export const createItemSchema = z.object({
   title: z.string().min(2, '제목은 2자 이상 입력해주세요.').max(100),
@@ -7,7 +7,13 @@ export const createItemSchema = z.object({
   price: z.number().int().min(0, '가격은 0원 이상이어야 합니다.').max(100_000_000),
   category: z.nativeEnum(ItemCategory),
   condition: z.nativeEnum(ItemCondition),
+  brand: z.string().max(50).optional(),
+  model: z.string().max(50).optional(),
+  grade: z.nativeEnum(Grade).optional(),
   location: z.string().max(100).optional(),
+  demoUrl: z.string().url('올바른 음원 URL이 아닙니다.').optional(),
+  demoTitle: z.string().max(100).optional(),
+  demoSec: z.number().int().min(0).max(600).optional(),
   imageUrls: z.array(z.string().url()).min(1, '사진을 최소 1장 업로드해주세요.').max(10),
 })
 
@@ -18,6 +24,7 @@ export const itemQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
   category: z.nativeEnum(ItemCategory).optional(),
   condition: z.nativeEnum(ItemCondition).optional(),
+  grade: z.nativeEnum(Grade).optional(),
   minPrice: z.coerce.number().int().min(0).optional(),
   maxPrice: z.coerce.number().int().min(0).optional(),
   q: z.string().max(100).optional(),   // 검색어
