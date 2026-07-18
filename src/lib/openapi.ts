@@ -88,6 +88,7 @@ export function getOpenApiSpec() {
       { name: '세션 매칭' },
       { name: '공연 매칭' },
       { name: '채팅' },
+      { name: '알림' },
       { name: '결제' },
       { name: '신고/업로드' },
     ],
@@ -245,6 +246,18 @@ export function getOpenApiSpec() {
               items: { type: 'string', enum: ['play', 'perform', 'trade', 'learn'] },
               description: '활동 유형 (회원가입 시 선택)',
             },
+          },
+        },
+        Notification: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            type: { type: 'string', enum: ['CHAT_MESSAGE', 'ITEM_RESERVED', 'ITEM_SOLD', 'SESSION_APPLY', 'SESSION_RESULT', 'CONCERT_APPLY', 'CONCERT_RESULT', 'REVIEW_RECEIVED', 'PAYMENT', 'SYSTEM'] },
+            title: { type: 'string' },
+            body: { type: 'string' },
+            data: { type: 'object', nullable: true },
+            readAt: { type: 'string', format: 'date-time', nullable: true },
+            createdAt: { type: 'string', format: 'date-time' },
           },
         },
         CreateReview: {
@@ -594,6 +607,26 @@ export function getOpenApiSpec() {
           tags: ['결제'], summary: '토스페이먼츠 웹훅 (서버→서버, 인증 헤더 별도)',
           description: '토스 대시보드에서 호출. Authorization Basic 검증. 일반 클라이언트가 쓰는 엔드포인트 아님.',
           responses: { 200: { description: 'ok' }, 401: { description: 'Unauthorized' } },
+        },
+      },
+      '/api/notifications': {
+        get: {
+          tags: ['알림'], summary: '내 알림 목록 (+안읽음 수)', security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+          parameters: [...pageParams],
+          responses: { 200: okJson('알림 목록', { type: 'object' }), 401: ERROR_RESPONSE },
+        },
+      },
+      '/api/notifications/{id}/read': {
+        patch: {
+          tags: ['알림'], summary: '알림 하나 읽음', security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: okJson('읽음', { type: 'object' }), 401: ERROR_RESPONSE, 404: ERROR_RESPONSE },
+        },
+      },
+      '/api/notifications/read-all': {
+        post: {
+          tags: ['알림'], summary: '전체 읽음 처리', security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+          responses: { 200: okJson('모두 읽음', { type: 'object' }), 401: ERROR_RESPONSE },
         },
       },
       '/api/reports': {
