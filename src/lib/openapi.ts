@@ -247,6 +247,16 @@ export function getOpenApiSpec() {
             },
           },
         },
+        CreateReview: {
+          type: 'object',
+          required: ['revieweeId', 'rating'],
+          properties: {
+            revieweeId: { type: 'string', description: '리뷰 대상 사용자 id' },
+            itemId: { type: 'string', description: '거래 리뷰면 상품 id (선택)' },
+            rating: { type: 'integer', minimum: 1, maximum: 5 },
+            content: { type: 'string', maxLength: 1000 },
+          },
+        },
         CreateRoom: {
           type: 'object',
           required: ['sellerId'],
@@ -365,6 +375,20 @@ export function getOpenApiSpec() {
           parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
           requestBody: jsonBody(ref('UpdateProfile')),
           responses: { 200: okJson('수정됨', ref('UserPublic')), 401: ERROR_RESPONSE, 403: ERROR_RESPONSE },
+        },
+      },
+      '/api/users/{id}/reviews': {
+        get: {
+          tags: ['사용자'], summary: '받은 후기 목록 + 평균',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }, ...pageParams],
+          responses: { 200: okJson('후기 목록', { type: 'object' }), 400: ERROR_RESPONSE },
+        },
+      },
+      '/api/reviews': {
+        post: {
+          tags: ['사용자'], summary: '후기 작성', security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+          requestBody: jsonBody(ref('CreateReview')),
+          responses: { 201: okJson('작성됨', { type: 'object' }), 400: ERROR_RESPONSE, 401: ERROR_RESPONSE, 404: ERROR_RESPONSE, 409: ERROR_RESPONSE },
         },
       },
       '/api/marketplace/items': {
