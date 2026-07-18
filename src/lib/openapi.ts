@@ -410,6 +410,13 @@ export function getOpenApiSpec() {
           responses: { 200: okJson('후기 목록', { type: 'object' }), 400: ERROR_RESPONSE },
         },
       },
+      '/api/users/{id}/trust': {
+        get: {
+          tags: ['사용자'], summary: '신뢰점수 (점수·등급·내역)',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: okJson('신뢰점수', { type: 'object', properties: { score: { type: 'integer' }, level: { type: 'string', enum: ['S', 'A', 'B', 'C'] }, items: { type: 'array', items: { type: 'object' } } } }), 404: ERROR_RESPONSE },
+        },
+      },
       '/api/reviews': {
         post: {
           tags: ['사용자'], summary: '후기 작성', security: [{ bearerAuth: [] }, { cookieAuth: [] }],
