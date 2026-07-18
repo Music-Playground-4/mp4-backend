@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { Frequency, RecruitLevel } from '@prisma/client'
 
 export const createSessionPostSchema = z.object({
   title: z.string().min(2).max(100),
@@ -9,6 +10,13 @@ export const createSessionPostSchema = z.object({
   pay: z.string().max(100).optional(),
   recruitCount: z.number().int().min(1).max(20).default(1),
   deadline: z.string().datetime().optional(),
+  freq: z.nativeEnum(Frequency).optional(),
+  level: z.nativeEnum(RecruitLevel).optional(),
+})
+
+// 지원 수락/거절
+export const applicationDecisionSchema = z.object({
+  status: z.enum(['ACCEPTED', 'REJECTED']),
 })
 
 export const sessionApplicationSchema = z.object({

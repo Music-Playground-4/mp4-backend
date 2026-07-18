@@ -185,6 +185,8 @@ export function getOpenApiSpec() {
             venue: { type: 'string', nullable: true, description: '공연 전용' },
             date: { type: 'string', format: 'date-time', nullable: true, description: '공연 전용' },
             deadline: { type: 'string', format: 'date-time', nullable: true, description: '세션 전용' },
+            freq: { type: 'string', enum: ['REGULAR', 'SHORT_TERM', 'ONE_TIME'], nullable: true, description: '세션: 정기/단기/원타임' },
+            level: { type: 'string', enum: ['BEGINNER_WELCOME', 'EXPERIENCED'], nullable: true, description: '세션: 입문환영/경력자' },
             pay: { type: 'string', nullable: true },
             recruitCount: { type: 'integer' },
             status: { type: 'string', enum: enums.PostStatus },
@@ -204,7 +206,14 @@ export function getOpenApiSpec() {
             pay: { type: 'string', maxLength: 100 },
             recruitCount: { type: 'integer', minimum: 1, maximum: 20, default: 1 },
             deadline: { type: 'string', format: 'date-time' },
+            freq: { type: 'string', enum: ['REGULAR', 'SHORT_TERM', 'ONE_TIME'] },
+            level: { type: 'string', enum: ['BEGINNER_WELCOME', 'EXPERIENCED'] },
           },
+        },
+        ApplicationDecision: {
+          type: 'object',
+          required: ['status'],
+          properties: { status: { type: 'string', enum: ['ACCEPTED', 'REJECTED'] } },
         },
         CreateConcertPost: {
           type: 'object',
@@ -509,6 +518,17 @@ export function getOpenApiSpec() {
           parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
           requestBody: jsonBody(ref('Application'), false),
           responses: { 201: okJson('지원 완료', { type: 'object' }), 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 409: ERROR_RESPONSE },
+        },
+      },
+      '/api/sessions/posts/{id}/applications/{appId}': {
+        patch: {
+          tags: ['세션 매칭'], summary: '지원 수락/거절 (작성자만)', security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+          parameters: [
+            { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+            { name: 'appId', in: 'path', required: true, schema: { type: 'string' } },
+          ],
+          requestBody: jsonBody(ref('ApplicationDecision')),
+          responses: { 200: okJson('처리됨', { type: 'object' }), 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 404: ERROR_RESPONSE },
         },
       },
       '/api/concerts/posts': {

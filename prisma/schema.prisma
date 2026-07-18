@@ -257,6 +257,8 @@ model SessionPost {
   pay          String?    // "협의", "무보수", "5만원" 등 자유 텍스트
   recruitCount Int        @default(1)
   deadline     DateTime?
+  freq         Frequency?     // 정기/단기/원타임
+  level        RecruitLevel?  // 입문환영/경력자
   status       PostStatus @default(OPEN)
   authorId     String
   createdAt    DateTime   @default(now())
@@ -342,6 +344,17 @@ enum ApplicationStatus {
   PENDING
   ACCEPTED
   REJECTED
+}
+
+enum Frequency {
+  REGULAR      // 정기
+  SHORT_TERM   // 단기
+  ONE_TIME     // 원타임
+}
+
+enum RecruitLevel {
+  BEGINNER_WELCOME  // 입문환영
+  EXPERIENCED       // 경력자
 }
 
 // ─────────────────────────────────────────

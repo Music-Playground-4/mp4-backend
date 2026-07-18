@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
-import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { getSessionUserId } from '@/lib/session'
 import { createSessionPostSchema, sessionQuerySchema } from '@/lib/validations/session'
 import { ok, created, unauthorized, validationError, serverError } from '@/lib/response'
 
@@ -42,6 +42,8 @@ export async function GET(req: NextRequest) {
           pay: true,
           recruitCount: true,
           deadline: true,
+          freq: true,
+          level: true,
           createdAt: true,
           author: { select: { id: true, nickname: true, avatar: true } },
           _count: { select: { applications: true } },
@@ -60,15 +62,15 @@ export async function GET(req: NextRequest) {
 // POST /api/sessions/posts — 세션 공고 작성
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) return unauthorized()
+    const userId = await getSessionUserId(req)
+    if (!userId) return unauthorized()
 
     const body = await req.json()
     const parsed = createSessionPostSchema.safeParse(body)
     if (!parsed.success) return validationError(parsed.error.flatten().fieldErrors as any)
 
     const post = await prisma.sessionPost.create({
-      data: { ...parsed.data, authorId: session.user.id },
+      data: { ...parsed.data, authorId: userId },
     })
 
     return created(post, '세션 공고가 등록되었습니다.')
