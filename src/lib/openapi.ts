@@ -580,6 +580,17 @@ export function getOpenApiSpec() {
           responses: { 201: okJson('지원 완료', { type: 'object' }), 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 409: ERROR_RESPONSE },
         },
       },
+      '/api/concerts/posts/{id}/applications/{appId}': {
+        patch: {
+          tags: ['공연 매칭'], summary: '지원 수락/거절 (작성자만)', security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+          parameters: [
+            { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+            { name: 'appId', in: 'path', required: true, schema: { type: 'string' } },
+          ],
+          requestBody: jsonBody(ref('ApplicationDecision')),
+          responses: { 200: okJson('처리됨', { type: 'object' }), 401: ERROR_RESPONSE, 403: ERROR_RESPONSE, 404: ERROR_RESPONSE },
+        },
+      },
       '/api/chat/rooms': {
         get: {
           tags: ['채팅'], summary: '내 채팅방 목록', security: [{ cookieAuth: [] }],

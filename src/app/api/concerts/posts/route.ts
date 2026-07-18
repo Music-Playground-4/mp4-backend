@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
-import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { getSessionUserId } from '@/lib/session'
 import { createConcertPostSchema, concertQuerySchema } from '@/lib/validations/concert'
 import { ok, created, unauthorized, validationError, serverError } from '@/lib/response'
 
@@ -51,15 +51,15 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) return unauthorized()
+    const userId = await getSessionUserId(req)
+    if (!userId) return unauthorized()
 
     const body = await req.json()
     const parsed = createConcertPostSchema.safeParse(body)
     if (!parsed.success) return validationError(parsed.error.flatten().fieldErrors as any)
 
     const post = await prisma.concertPost.create({
-      data: { ...parsed.data, authorId: session.user.id },
+      data: { ...parsed.data, authorId: userId },
     })
 
     return created(post, '공연 공고가 등록되었습니다.')
