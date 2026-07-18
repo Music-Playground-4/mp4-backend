@@ -281,10 +281,14 @@ export function getOpenApiSpec() {
         },
         CreateRoom: {
           type: 'object',
-          required: ['sellerId'],
+          required: ['type'],
+          description: 'MARKET은 sellerId(+itemId), SESSION/CONCERT는 해당 postId를 준다. 진입 시 멤버로 합류.',
           properties: {
-            sellerId: { type: 'string', description: 'cuid' },
-            itemId: { type: 'string', description: 'cuid (선택)' },
+            type: { type: 'string', enum: ['MARKET', 'SESSION', 'CONCERT'] },
+            sellerId: { type: 'string', description: 'MARKET 상대 (cuid)' },
+            itemId: { type: 'string', description: 'MARKET 상품 (cuid, 선택)' },
+            sessionPostId: { type: 'string', description: 'SESSION 공고 (cuid)' },
+            concertPostId: { type: 'string', description: 'CONCERT 공고 (cuid)' },
           },
         },
         SendMessage: {

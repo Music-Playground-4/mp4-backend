@@ -43,8 +43,7 @@ model User {
   // Domain relations
   items              Item[]
   sentMessages       ChatMessage[]        @relation("MessageSender")
-  buyerRooms         ChatRoom[]           @relation("ChatBuyer")
-  sellerRooms        ChatRoom[]           @relation("ChatSeller")
+  chatMemberships    ChatRoomMember[]
   sessionPosts       SessionPost[]
   sessionApps        SessionApplication[]
   concertPosts       ConcertPost[]
@@ -204,21 +203,38 @@ enum ItemStatus {
 // ─────────────────────────────────────────
 
 model ChatRoom {
-  id        String   @id @default(cuid())
-  buyerId   String
-  sellerId  String
-  itemId    String?
-  createdAt DateTime @default(now())
+  id            String       @id @default(cuid())
+  type          ChatRoomType @default(MARKET)
+  itemId        String?      // MARKET (악기 거래)
+  sessionPostId String?      // SESSION (세션 팀챗)
+  concertPostId String?      // CONCERT (공연 팀챗)
+  createdAt     DateTime     @default(now())
 
-  buyer    User          @relation("ChatBuyer", fields: [buyerId], references: [id])
-  seller   User          @relation("ChatSeller", fields: [sellerId], references: [id])
-  item     Item?         @relation(fields: [itemId], references: [id])
-  messages ChatMessage[]
+  item        Item?            @relation(fields: [itemId], references: [id])
+  sessionPost SessionPost?     @relation(fields: [sessionPostId], references: [id])
+  concertPost ConcertPost?     @relation(fields: [concertPostId], references: [id])
+  members     ChatRoomMember[]
+  messages    ChatMessage[]
 
-  @@unique([buyerId, sellerId, itemId])
-  @@index([buyerId])
-  @@index([sellerId])
+  @@index([itemId])
+  @@index([sessionPostId])
+  @@index([concertPostId])
   @@map("chat_rooms")
+}
+
+model ChatRoomMember {
+  id         String    @id @default(cuid())
+  roomId     String
+  userId     String
+  lastReadAt DateTime?
+  joinedAt   DateTime  @default(now())
+
+  room ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User     @relation(fields: [userId], references: [id])
+
+  @@unique([roomId, userId])
+  @@index([userId])
+  @@map("chat_room_members")
 }
 
 model ChatMessage {
@@ -241,6 +257,12 @@ enum MessageType {
   TEXT
   IMAGE
   SYSTEM
+}
+
+enum ChatRoomType {
+  MARKET   // 악기 거래 (1:1)
+  SESSION  // 세션 팀챗
+  CONCERT  // 공연 팀챗
 }
 
 // ─────────────────────────────────────────
@@ -267,6 +289,7 @@ model SessionPost {
   author       User                 @relation(fields: [authorId], references: [id])
   applications SessionApplication[]
   reports      Report[]
+  chatRooms    ChatRoom[]
 
   @@index([authorId])
   @@index([status, createdAt(sort: Desc)])
@@ -312,6 +335,7 @@ model ConcertPost {
   author       User                  @relation(fields: [authorId], references: [id])
   applications ConcertApplication[]
   reports      Report[]
+  chatRooms    ChatRoom[]
 
   @@index([authorId])
   @@index([status, createdAt(sort: Desc)])
